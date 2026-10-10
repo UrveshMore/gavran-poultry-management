@@ -1,0 +1,774 @@
+// Prisma Schema for Gavran Poultry Management System
+// Based on DATABASE.md documentation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Core Entities
+
+model Farm {
+  id           String    @id @default(uuid())
+  name         String
+  code         String    @unique
+  ownerId      String
+  owner        User      @relation(fields: [ownerId], references: [id])
+  address      String?
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  archivedAt   DateTime? 
+  
+  sheds        Shed[]
+  users        FarmMembership[]
+  batches      BirdBatch[]
+  eggs         Egg[]
+  incubators   Incubator[]
+  financialRecords FinancialRecord[]
+}
+
+model Shed {
+  id           String    @id @default(uuid())
+  farmId       String
+  farm         Farm       @relation(fields: [farmId], references: [id])
+  name         String
+  code         String
+  capacity     Int?
+  shedType     String?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  archivedAt   DateTime? 
+  
+  batches      BirdBatch[]
+  environment  EnvironmentObservation[]
+  biosecurity  BiosecurityRecord[]
+  tasks        Task[]
+}
+
+// User and Role Management
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  passwordHash  String?
+  firstName     String
+  lastName      String
+  phone         String?
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  farms         FarmMembership[]
+  roles         UserRole[]
+  tasksAssigned Task[]       @relation("AssignedTo")
+  tasksCreated  Task[]       @relation("CreatedBy")
+  recordsCreated HealthRecord[] @relation("CreatedBy")
+  auditLogs      AuditLog[]
+}
+
+model Role {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  userRoles   UserRole[]
+  permissions RolePermission[]
+}
+
+model RolePermission {
+  roleId     String
+  permission String
+  
+  role       Role   @relation(fields: [roleId], references: [id])
+  
+  @@id([roleId, permission])
+}
+
+model UserRole {
+  userId  String
+  roleId  String
+  user    User   @relation(fields: [userId], references: [id])
+  role    Role   @relation(fields: [roleId], references: [id])
+  
+  @@id([userId, roleId])
+}
+
+model FarmMembership {
+  userId     String
+  farmId     String
+  roleId     String?
+  user       User      @relation(fields: [userId], references: [id])
+  farm       Farm      @relation(fields: [farmId], references: [id])
+  role       Role?     @relation(fields: [roleId], references: [id])
+  
+  @@id([userId, farmId])
+}
+
+// Bird Management
+
+model BirdBatch {
+  id           String    @id @default(uuid())
+  farmId       String
+  shedId       String?
+  batchCode    String    @unique
+  birdType     String
+  source       String?
+  hatchDate    DateTime?
+  acquisitionDate DateTime?
+  initialQuantity Int
+  currentQuantity Int
+  maleQuantity   Int
+  femaleQuantity Int
+  status       String
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  archivedAt   DateTime?
+  
+  farm         Farm      @relation(fields: [farmId], references: [id])
+  shed         Shed?     @relation(fields: [shedId], references: [id])
+  birds        Bird[]
+  healthRecords HealthRecord[]
+  feedConsumption FeedConsumption[]
+  mortality     MortalityRecord[]
+  sales        Sale[]
+  breedingGroup BreedingGroupMember[]
+}
+
+model Bird {
+  id           String    @id @default(uuid())
+  batchId      String
+  birdIdentifier String
+  sex          String
+  breed        String?
+  birthDate    DateTime?
+  status       String
+  parentId     String?
+  parent       Bird?     @relation("Children", fields: [parentId], references: [id])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  batch        BirdBatch @relation(fields: [batchId], references: [id])
+  healthRecords HealthRecord[]
+  mortality     MortalityRecord[]
+  breedingGroupBreeder BreedingGroupMember[]
+}
+
+// Breeding and Genealogy
+
+model BreedingGroup {
+  id          String          @id @default(uuid())
+  name        String
+  description String?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  
+  members     BreedingGroupMember[]
+}
+
+model BreedingGroupMember {
+  id             String           @id @default(uuid())
+  breedingGroupId String
+  birdId         String?
+  batchId        String?
+  relationshipType String
+  isParent       Boolean         @default(false)
+  
+  breedingGroup  BreedingGroup   @relation(fields: [breedingGroupId], references: [id])
+  bird           Bird?           @relation(fields: [birdId], references: [id])
+  batch          BirdBatch?      @relation(fields: [batchId], references: [id])
+  
+  @@index([birdId])
+  @@index([batchId])
+}
+
+// Egg and Incubation Management
+
+model Egg {
+  id            String     @id @default(uuid())
+  collectionDate DateTime
+  sourceFarmId  String?
+  sourceBatchId String?
+  sourceBirdId  String?
+  quantity      Int
+  quality       String?
+  sizeGrade     String?
+  destination   String
+  status        String
+  storageInfo   String?
+  incubationEligible Boolean @default(false)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  sourceFarm    Farm?      @relation("EggSourceFarm", fields: [sourceFarmId], references: [id])
+  sourceBatch   BirdBatch? @relation(fields: [sourceBatchId], references: [id])
+  sourceBird    Bird?      @relation(fields: [sourceBirdId], references: [id])
+}
+
+model Incubator {
+  id            String     @id @default(uuid())
+  farmId        String
+  name          String
+  code          String     @unique
+  capacity      Int?
+  incubatorType String?
+  status        String?
+  temperatureRef Float?
+  humidityRef   Float?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  farm          Farm       @relation(fields: [farmId], references: [id])
+  batches       IncubationBatch[]
+}
+
+model IncubationBatch {
+  id              String    @id @default(uuid())
+  incubatorId     String
+  sourceEggId     String?
+  startDate       DateTime
+  expectedHatchDate DateTime
+  quantityPlaced  Int
+  status          String
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  incubator       Incubator @relation(fields: [incubatorId], references: [id])
+  sourceEgg       Egg?      @relation(fields: [sourceEggId], references: [id])
+  candlingEvents  CandlingEvent[]
+  hatchEvents     HatchEvent[]
+}
+
+model IncubationEvent {
+  id            String    @id @default(uuid())
+  batchId       String
+  eventType     String
+  eventDate     DateTime
+  recordedBy    String
+  notes         String?
+  temperature   Float?
+  humidity      Float?
+  measurements  Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  batch         IncubationBatch @relation(fields: [batchId], references: [id])
+}
+
+model CandlingEvent {
+  id            String    @id @default(uuid())
+  incubationBatchId String
+  date          DateTime
+  eggsChecked   Int
+  fertile       Int
+  infertile     Int
+  deadEmbryo    Int
+  removed       Int
+  recordedBy    String
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  incubationBatch IncubationBatch @relation(fields: [incubationBatchId], references: [id])
+}
+
+model HatchEvent {
+  id             String    @id @default(uuid())
+  incubationBatchId String
+  hatchDate      DateTime
+  successfulHatchCount Int
+  unhatchedCount Int
+  weakDeadCount  Int
+  chickBatchId   String?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  incubationBatch IncubationBatch @relation(fields: [incubationBatchId], references: [id])
+  chickBatch     BirdBatch?      @relation(fields: [chickBatchId], references: [id])
+}
+
+// Health and Veterinary Records
+
+model HealthRecord {
+  id            String    @id @default(uuid())
+  farmId        String
+  batchId       String?
+  birdId        String?
+  recordDate    DateTime
+  recordType    String
+  symptoms      String?
+  observation   String?
+  approvedStatus String?
+  recordedBy    String
+  notes         String?
+  attachments   String[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  farm          Farm       @relation(fields: [farmId], references: [id])
+  batch         BirdBatch? @relation(fields: [batchId], references: [id])
+  bird          Bird?      @relation(fields: [birdId], references: [id])
+  recordedByUser User?      @relation("CreatedBy", fields: [recordedBy], references: [id])
+}
+
+model VeterinarySOP {
+  id           String    @id @default(uuid())
+  title        String
+  category     String?
+  version      String
+  content      String
+  approvedBy   String
+  approvedAt   DateTime?
+  status       String
+  effectiveDate DateTime?
+  expiryDate   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  createdBy    User      @relation(fields: [approvedBy], references: [id])
+}
+
+// Vaccination and Medicine
+
+model VaccinationPlan {
+  id           String    @id @default(uuid())
+  name         String
+  description  String?
+  targetBatch  String?
+  vaccineType  String
+  dosage       String?
+  schedule     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model VaccinationRecord {
+  id            String    @id @default(uuid())
+  batchId       String?
+  birdId        String?
+  vaccinePlanId String?
+  scheduledDate DateTime
+  actualDate    DateTime?
+  dosage        String?
+  administeredBy String
+  notes         String?
+  status        String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  batch         BirdBatch?   @relation(fields: [batchId], references: [id])
+  bird          Bird?        @relation(fields: [birdId], references: [id])
+  vaccinePlan   VaccinationPlan? @relation(fields: [vaccinePlanId], references: [id])
+}
+
+model Medicine {
+  id           String    @id @default(uuid())
+  name         String
+  manufacturer String?
+  type         String?
+  description  String?
+  unit         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model MedicineRecord {
+  id            String    @id @default(uuid())
+  batchId       String?
+  birdId        String?
+  medicineId    String
+  prescribedBy  String?
+  administeredBy String
+  dosage        String?
+  administrationDate DateTime
+  notes         String?
+  status        String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  batch         BirdBatch?  @relation(fields: [batchId], references: [id])
+  bird          Bird?       @relation(fields: [birdId], references: [id])
+  medicine      Medicine    @relation(fields: [medicineId], references: [id])
+  prescribedByUser User?      @relation("PrescribedBy", fields: [prescribedBy], references: [id])
+}
+
+// Mortality and Production Tracking
+
+model MortalityRecord {
+  id            String    @id @default(uuid())
+  date          DateTime
+  farmId        String
+  shedId        String?
+  batchId       String?
+  birdId        String?
+  ageDay        Int?
+  quantity      Int
+  suspectedReason String?
+  symptoms      String?
+  notes         String?
+  photoDocument String?
+  disposalInfo  String?
+  recordedBy    String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  farm          Farm       @relation(fields: [farmId], references: [id])
+  shed          Shed?      @relation(fields: [shedId], references: [id])
+  batch         BirdBatch? @relation(fields: [batchId], references: [id])
+  bird          Bird?      @relation(fields: [birdId], references: [id])
+  recordedByUser User?      @relation("MortalityRecordedBy", fields: [recordedBy], references: [id])
+}
+
+// Feed and Water Management
+
+model FeedType {
+  id           String    @id @default(uuid())
+  name         String
+  description  String?
+  unit         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  feedInventory FeedInventory[]
+  feedConsumption FeedConsumption[]
+}
+
+model FeedInventory {
+  id           String    @id @default(uuid())
+  feedTypeId   String
+  supplierId   String?
+  quantity     Float
+  unit         String
+  costPerUnit  Float?
+  batch        String?
+  receiptDate  DateTime
+  expiryDate   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  feedType     FeedType   @relation(fields: [feedTypeId], references: [id])
+  supplier     Supplier?  @relation(fields: [supplierId], references: [id])
+}
+
+model FeedConsumption {
+  id           String    @id @default(uuid())
+  batchId      String?
+  birdId       String?
+  feedTypeId   String
+  quantity     Float
+  unit         String
+  consumptionDate DateTime
+  workerId     String?
+  shedId       String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  batch        BirdBatch? @relation(fields: [batchId], references: [id])
+  bird         Bird?      @relation(fields: [birdId], references: [id])
+  feedType     FeedType   @relation(fields: [feedTypeId], references: [id])
+  worker       User?      @relation(fields: [workerId], references: [id])
+  shed         Shed?      @relation(fields: [shedId], references: [id])
+}
+
+// Environment and Biosecurity
+
+model EnvironmentObservation {
+  id            String    @id @default(uuid())
+  shedId        String
+  date          DateTime
+  temperature   Float?
+  humidity      Float?
+  ventilation   String?
+  powerStatus   String?
+  otherMeasurements Json?
+  recordedBy    String
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  shed          Shed       @relation(fields: [shedId], references: [id])
+  recordedByUser User?      @relation("EnvironmentRecordedBy", fields: [recordedBy], references: [id])
+}
+
+model BiosecurityRecord {
+  id           String    @id @default(uuid())
+  area         String
+  checklistId  String?
+  date         DateTime
+  result       String
+  issue        String?
+  correctiveAction String?
+  responsiblePerson String
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  checklist    BiosecurityChecklist? @relation(fields: [checklistId], references: [id])
+  responsibleUser User?              @relation("BiosecurityResponsible", fields: [responsiblePerson], references: [id])
+}
+
+model BiosecurityChecklist {
+  id           String    @id @default(uuid())
+  title        String
+  description  String?
+  category     String?
+  frequency    String?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  biosecurityRecords BiosecurityRecord[]
+}
+
+// Workers and Training
+
+model Worker {
+  id           String    @id @default(uuid())
+  firstName    String
+  lastName     String
+  employeeCode String?   @unique
+  phone        String?
+  hireDate     DateTime?
+  status       String
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  assignments  WorkerAssignment[]
+  documents    WorkerDocument[]
+}
+
+model WorkerAssignment {
+  id           String    @id @default(uuid())
+  workerId     String
+  farmId       String
+  shedId       String?
+  startDate    DateTime
+  endDate      DateTime?
+  position     String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  worker       Worker    @relation(fields: [workerId], references: [id])
+  farm         Farm      @relation(fields: [farmId], references: [id])
+  shed         Shed?     @relation(fields: [shedId], references: [id])
+}
+
+model WorkerDocument {
+  id           String    @id @default(uuid())
+  workerId     String
+  documentType String
+  fileName     String
+  path         String
+  uploadedBy   String
+  uploadDate   DateTime
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  worker       Worker    @relation(fields: [workerId], references: [id])
+  uploadedByUser User?     @relation("WorkerDocumentUploaded", fields: [uploadedBy], references: [id])
+}
+
+// Tasks and Operations
+
+model Task {
+  id            String    @id @default(uuid())
+  title         String
+  description   String?
+  taskType      String
+  farmId        String
+  shedId        String?
+  batchId       String?
+  birdId        String?
+  assignedToId  String?
+  createdBy    String
+  dueDate       DateTime?
+  status        String
+  completionDate DateTime?
+  relatedSOP    String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  farm          Farm       @relation(fields: [farmId], references: [id])
+  shed          Shed?      @relation(fields: [shedId], references: [id])
+  batch         BirdBatch? @relation(fields: [batchId], references: [id])
+  bird          Bird?      @relation(fields: [birdId], references: [id])
+  assignedTo    User?      @relation("AssignedTo", fields: [assignedToId], references: [id])
+  createdByUser User        @relation("CreatedBy", fields: [createdBy], references: [id])
+}
+
+// Sales and Purchases
+
+model Customer {
+  id           String    @id @default(uuid())
+  name         String
+  email        String?
+  phone        String?
+  address      String?
+  customerCode String?   @unique
+  isActive     Boolean   @default(true)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  sales        Sale[]
+  payments     Payment[]
+}
+
+model Supplier {
+  id           String    @id @default(uuid())
+  name         String
+  email        String?
+  phone        String?
+  address      String?
+  supplierCode String?   @unique
+  isActive     Boolean   @default(true)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  purchases    PurchaseOrder[]
+  payments     Payment[]
+}
+
+model Sale {
+  id           String    @id @default(uuid())
+  customerId   String
+  farmId       String
+  saleDate     DateTime
+  totalAmount  Float
+  status       String
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  customer     Customer  @relation(fields: [customerId], references: [id])
+  farm         Farm      @relation(fields: [farmId], references: [id])
+}
+
+model PurchaseOrder {
+  id           String    @id @default(uuid())
+  supplierId   String
+  farmId       String
+  orderDate    DateTime
+  expectedDelivery DateTime?
+  totalAmount  Float
+  status       String
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  supplier     Supplier  @relation(fields: [supplierId], references: [id])
+  farm         Farm      @relation(fields: [farmId], references: [id])
+}
+
+// Financial Records
+
+model FinancialAccount {
+  id           String    @id @default(uuid())
+  name         String
+  accountType  String
+  balance      Float     @default(0.0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  financialRecords FinancialRecord[]
+}
+
+model FinancialRecord {
+  id           String    @id @default(uuid())
+  farmId       String
+  accountId    String
+  recordType   String
+  date         DateTime
+  amount       Float
+  description  String?
+  referenceNumber String?
+  category     String?
+  status       String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  farm         Farm        @relation(fields: [farmId], references: [id])
+  account      FinancialAccount @relation(fields: [accountId], references: [id])
+}
+
+model Payment {
+  id           String    @id @default(uuid())
+  customerId   String?
+  supplierId   String?
+  farmId       String
+  paymentDate  DateTime
+  amount       Float
+  paymentType  String
+  reference    String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  supplier     Supplier? @relation(fields: [supplierId], references: [id])
+  farm         Farm      @relation(fields: [farmId], references: [id])
+}
+
+// Alerts and Reporting
+
+model Alert {
+  id           String    @id @default(uuid())
+  alertType    String
+  severity     String
+  relatedEntity String?
+  relatedEntityId String?
+  dueDate      DateTime?
+  recipient    String
+  status       String
+  acknowledged Boolean   @default(false)
+  resolution   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  recipientUser User?     @relation("AlertRecipient", fields: [recipient], references: [id])
+}
+
+// Audit and System
+
+model AuditLog {
+  id           String    @id @default(uuid())
+  actorId      String
+  action       String
+  entity       String
+  entityId     String
+  timestamp    DateTime  @default(now())
+  beforeValues Json?
+  afterValues  Json?
+  
+  actor        User      @relation(fields: [actorId], references: [id])
+}
+
+model QRCode {
+  id           String    @id @default(uuid())
+  code         String    @unique
+  entityType   String
+  entityId     String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
